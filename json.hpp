@@ -4,7 +4,7 @@
 #ifndef CMATH_BCB_MISSING
 #define CMATH_BCB_MISSING
 
-#if defined(__clang__) && defined(__BORLANDC__) && defined(_WIN32) && !defined(_WIN64)
+#if defined(__clang__) && defined(__BORLANDC__) && defined(_WIN32)
   #if (__clang_major__ * 10000 + __clang_minor__ * 100 + __clang_patchlevel__) >= 30301 && (__clang_major__ * 10000 + __clang_minor__ * 100 + __clang_patchlevel__) < 30400
 
       #pragma message ("Fixing shortcomings in Borland C++ Builder Clang (bcc32c) compiler [3.3.1, 3.4.0)")
