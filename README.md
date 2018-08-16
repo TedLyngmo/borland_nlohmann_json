@@ -4,7 +4,7 @@ This library uses git submodules to fetch and instrument a single header (json.h
 
 ## Building
 
-To create the single header file:
+The file json.hpp in the top directory is already instrumented and ready to be used but if you've made changes that you'd like to try out and have the make command available, just do
 ```bash
 make
 ```
