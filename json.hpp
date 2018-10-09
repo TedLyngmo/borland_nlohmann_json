@@ -70,6 +70,7 @@
 #endif // CMATH_BCB_MISSING
 //-----------------------------------------------------------------------------
 #ifndef BORLAND_NLOHMANN_JSON_INSTRUMENTATION
+#define BORLAND_NLOHMANN_JSON_INSTRUMENTATION
 /*
 ** Includes and defines to be able to use https://github.com/nlohmann/json
 */
