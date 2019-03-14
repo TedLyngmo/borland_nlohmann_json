@@ -265,6 +265,7 @@ using json = basic_json<>;
     #define JSON_CATCH(exception) catch(exception)
     #define JSON_INTERNAL_CATCH(exception) catch(exception)
 #else
+    #include <cstdlib>
     #define JSON_THROW(exception) std::abort()
     #define JSON_TRY if(true)
     #define JSON_CATCH(exception) if(false)
@@ -1901,6 +1902,11 @@ auto get(const nlohmann::detail::iteration_proxy_value<IteratorType>& i) -> decl
 // And see https://github.com/nlohmann/json/pull/1391
 namespace std
 {
+#if defined(__clang__)
+    // Fix: https://github.com/nlohmann/json/issues/1401
+    #pragma clang diagnostic push
+    #pragma clang diagnostic ignored "-Wmismatched-tags"
+#endif
 template <typename IteratorType>
 class tuple_size<::nlohmann::detail::iteration_proxy_value<IteratorType>>
             : public std::integral_constant<std::size_t, 2> {};
@@ -1913,7 +1919,11 @@ class tuple_element<N, ::nlohmann::detail::iteration_proxy_value<IteratorType >>
                      get<N>(std::declval <
                             ::nlohmann::detail::iteration_proxy_value<IteratorType >> ()));
 };
+#if defined(__clang__)
+    #pragma clang diagnostic pop
+#endif
 }
+
 
 namespace nlohmann
 {
@@ -4595,16 +4605,16 @@ class json_sax_dom_parser
             switch ((ex.id / 100) % 100)
             {
                 case 1:
-                    JSON_THROW(*reinterpret_cast<const detail::parse_error*>(&ex));
+                    JSON_THROW(*static_cast<const detail::parse_error*>(&ex));
                 case 4:
-                    JSON_THROW(*reinterpret_cast<const detail::out_of_range*>(&ex));
+                    JSON_THROW(*static_cast<const detail::out_of_range*>(&ex));
                 // LCOV_EXCL_START
                 case 2:
-                    JSON_THROW(*reinterpret_cast<const detail::invalid_iterator*>(&ex));
+                    JSON_THROW(*static_cast<const detail::invalid_iterator*>(&ex));
                 case 3:
-                    JSON_THROW(*reinterpret_cast<const detail::type_error*>(&ex));
+                    JSON_THROW(*static_cast<const detail::type_error*>(&ex));
                 case 5:
-                    JSON_THROW(*reinterpret_cast<const detail::other_error*>(&ex));
+                    JSON_THROW(*static_cast<const detail::other_error*>(&ex));
                 default:
                     assert(false);
                     // LCOV_EXCL_STOP
@@ -4852,16 +4862,16 @@ class json_sax_dom_callback_parser
             switch ((ex.id / 100) % 100)
             {
                 case 1:
-                    JSON_THROW(*reinterpret_cast<const detail::parse_error*>(&ex));
+                    JSON_THROW(*static_cast<const detail::parse_error*>(&ex));
                 case 4:
-                    JSON_THROW(*reinterpret_cast<const detail::out_of_range*>(&ex));
+                    JSON_THROW(*static_cast<const detail::out_of_range*>(&ex));
                 // LCOV_EXCL_START
                 case 2:
-                    JSON_THROW(*reinterpret_cast<const detail::invalid_iterator*>(&ex));
+                    JSON_THROW(*static_cast<const detail::invalid_iterator*>(&ex));
                 case 3:
-                    JSON_THROW(*reinterpret_cast<const detail::type_error*>(&ex));
+                    JSON_THROW(*static_cast<const detail::type_error*>(&ex));
                 case 5:
-                    JSON_THROW(*reinterpret_cast<const detail::other_error*>(&ex));
+                    JSON_THROW(*static_cast<const detail::other_error*>(&ex));
                 default:
                     assert(false);
                     // LCOV_EXCL_STOP
@@ -8417,7 +8427,7 @@ class binary_reader
             }
 
             // reverse byte order prior to conversion if necessary
-            if (is_little_endian && !InputIsLittleEndian)
+            if (is_little_endian != InputIsLittleEndian)
             {
                 vec[sizeof(NumberType) - i - 1] = static_cast<uint8_t>(current);
             }
@@ -9830,7 +9840,7 @@ class binary_writer
         std::memcpy(vec.data(), &n, sizeof(NumberType));
 
         // step 2: write array to output (with possible reordering)
-        if (is_little_endian and not OutputIsLittleEndian)
+        if (is_little_endian != OutputIsLittleEndian)
         {
             // reverse byte order prior to conversion if necessary
             std::reverse(vec.begin(), vec.end());
@@ -11616,7 +11626,7 @@ class serializer
         if (is_negative)
         {
             *buffer_ptr = '-';
-            abs_value = static_cast<number_unsigned_t>(-1 - x) + 1;
+            abs_value = static_cast<number_unsigned_t>(std::abs(static_cast<std::intmax_t>(x)));
 
             // account one more byte for the minus sign
             n_chars = 1 + count_digits(abs_value);
@@ -11980,6 +11990,67 @@ class json_pointer
     }
 
     /*!
+    @brief append another JSON pointer at the end of this JSON pointer
+    */
+    json_pointer& operator/=(const json_pointer& ptr)
+    {
+        reference_tokens.insert(reference_tokens.end(), ptr.reference_tokens.begin(), ptr.reference_tokens.end());
+        return *this;
+    }
+
+    /// @copydoc push_back(std::string&&)
+    json_pointer& operator/=(std::string token)
+    {
+        push_back(std::move(token));
+        return *this;
+    }
+
+    /// @copydoc operator/=(std::string)
+    json_pointer& operator/=(std::size_t array_index)
+    {
+        return *this /= std::to_string(array_index);
+    }
+
+    /*!
+    @brief create a new JSON pointer by appending the right JSON pointer at the end of the left JSON pointer
+    */
+    friend json_pointer operator/(const json_pointer& left_ptr, const json_pointer& right_ptr)
+    {
+        return json_pointer(left_ptr) /= right_ptr;
+    }
+
+    /*!
+    @brief create a new JSON pointer by appending the unescaped token at the end of the JSON pointer
+    */
+    friend json_pointer operator/(const json_pointer& ptr, std::string token)
+    {
+        return json_pointer(ptr) /= std::move(token);
+    }
+
+    /*!
+    @brief create a new JSON pointer by appending the array-index-token at the end of the JSON pointer
+    */
+    friend json_pointer operator/(const json_pointer& lhs, std::size_t array_index)
+    {
+        return json_pointer(lhs) /= array_index;
+    }
+
+    /*!
+    @brief create a new JSON pointer that is the parent of this JSON pointer
+    */
+    json_pointer parent_pointer() const
+    {
+        if (empty())
+        {
+            return *this;
+        }
+
+        json_pointer res = *this;
+        res.pop_back();
+        return res;
+    }
+
+    /*!
     @param[in] s  reference token to be converted into an array index
 
     @return integer representation of @a s
@@ -12001,12 +12072,12 @@ class json_pointer
     }
 
     /*!
-    @brief remove and return last reference pointer
+    @brief remove and return last reference token
     @throw out_of_range.405 if JSON pointer has no parent
     */
     std::string pop_back()
     {
-        if (JSON_UNLIKELY(is_root()))
+        if (JSON_UNLIKELY(empty()))
         {
             JSON_THROW(detail::out_of_range::create(405, "JSON pointer has no parent"));
         }
@@ -12017,24 +12088,29 @@ class json_pointer
     }
 
     /*!
-    @brief remove and return last reference pointer
-    @throw out_of_range.405 if JSON pointer has no parent
+    @brief append an unescaped token at the end of the reference pointer
     */
-    void push_back(const std::string& tok)
+    void push_back(const std::string& token)
     {
-        reference_tokens.push_back(tok);
+        reference_tokens.push_back(token);
     }
 
-  private:
+    /// @copydoc push_back(const std::string&)
+    void push_back(std::string&& token)
+    {
+        reference_tokens.push_back(std::move(token));
+    }
+
     /// return whether pointer points to the root document
-    bool is_root() const noexcept
+    bool empty() const noexcept
     {
         return reference_tokens.empty();
     }
 
+  private:
     json_pointer top() const
     {
-        if (JSON_UNLIKELY(is_root()))
+        if (JSON_UNLIKELY(empty()))
         {
             JSON_THROW(detail::out_of_range::create(405, "JSON pointer has no parent"));
         }
@@ -15451,7 +15527,7 @@ class basic_json
 
 #ifndef _MSC_VER  // fix for issue #167 operator<< ambiguity under VS2015
                    and not std::is_same<ValueType, std::initializer_list<typename string_t::value_type>>::value
-#if defined(JSON_HAS_CPP_17) && defined(_MSC_VER) and _MSC_VER <= 1914
+#if defined(JSON_HAS_CPP_17) && (defined(__GNUC__) || (defined(_MSC_VER) and _MSC_VER <= 1914))
                    and not std::is_same<ValueType, typename std::string_view>::value
 #endif
 #endif
@@ -16547,6 +16623,39 @@ class basic_json
     {
         // return 0 for all nonobject types
         return is_object() ? m_value.object->count(std::forward<KeyT>(key)) : 0;
+    }
+
+    /*!
+    @brief check the existence of an element in a JSON object
+
+    Check whether an element exists in a JSON object with key equivalent to
+    @a key. If the element is not found or the JSON value is not an object,
+    false is returned.
+
+    @note This method always returns false when executed on a JSON type
+          that is not an object.
+
+    @param[in] key key value to check its existence.
+
+    @return true if an element with specified @a key exists. If no such
+    element with such key is found or the JSON value is not an object,
+    false is returned.
+
+    @complexity Logarithmic in the size of the JSON object.
+
+    @since version 3.6.0
+    */
+    template<typename KeyT>
+    bool contains(KeyT&& key) const
+    {
+        if (is_object())
+        {
+            return (m_value.object->find(std::forward<KeyT>(key)) != m_value.object->end());
+        }
+        else
+        {
+            return false;
+        }
     }
 
     /// @}
@@ -18601,9 +18710,6 @@ class basic_json
     @pre The container storage is contiguous. Violating this precondition
     yields undefined behavior. **This precondition is enforced with an
     assertion.**
-    @pre Each element of the container has a size of 1 byte. Violating this
-    precondition yields undefined behavior. **This precondition is enforced
-    with a static assertion.**
 
     @warning There is no way to enforce all preconditions at compile-time. If
              the function is called with a noncompliant container and with
@@ -18684,9 +18790,6 @@ class basic_json
     @pre The container storage is contiguous. Violating this precondition
     yields undefined behavior. **This precondition is enforced with an
     assertion.**
-    @pre Each element of the container has a size of 1 byte. Violating this
-    precondition yields undefined behavior. **This precondition is enforced
-    with a static assertion.**
 
     @warning There is no way to enforce all preconditions at compile-time. If
              the function is called with a noncompliant container and with
@@ -20058,7 +20161,7 @@ class basic_json
         const auto operation_add = [&result](json_pointer & ptr, basic_json val)
         {
             // adding to the root of the target document means replacing it
-            if (ptr.is_root())
+            if (ptr.empty())
             {
                 result = val;
             }
